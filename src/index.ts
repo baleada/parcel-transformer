@@ -1,11 +1,11 @@
-import pluginUtils from '@rollup/pluginutils'
-import type { Plugin, TransformPluginContext, TransformResult } from 'rollup'
+import { Transformer } from '@parcel/plugin'
+import type { Transformer as TransformerType, Async, MutableAsset, TransformerResult } from '@parcel/types'
+import { createFilter } from '@rollup/pluginutils'
 import type { FilterPattern } from '@rollup/pluginutils'
-
-const { createFilter } = pluginUtils
+import { resolve } from 'path'
 
 export type Options = {
-  transform?: ((api: Api) => TransformResult) | ((api: Api) => Promise<TransformResult>),
+  transform?: ((api: Api) => Async<(MutableAsset | TransformerResult)[]>),
   include?: FilterPattern,
   exclude?: FilterPattern,
   test?: Test
@@ -21,41 +21,48 @@ type TestApi = {
 export type Api = {
   source: string,
   id: string,
-  context: TransformPluginContext,
-  utils: typeof pluginUtils
+  context: Parameters<TransformerType<Config>['transform']>[0],
+  utils: { createFilter: typeof createFilter }
 }
 
-const defaultOptions: Options = {
-  transform: ({ source}) => source,
+type Config = {
+  transform: Options['transform'],
+  test: Test
 }
 
-export function sourceTransform (options: Options = {}): Plugin {
-  const { transform, include, exclude, test: rawTest } = { ...defaultOptions, ...options },
-        test = ensureTest({ include, exclude, rawTest })
-
-
-
-  return {
-    name: 'source-transform',
-    async transform (source, id) {
-      if (!test({ source, id })) {
-        return null
+export default new Transformer<Config>({
+  async loadConfig ({ config }) {
+    const {
+      contents: {
+        parcelTransformer: { transform, include, exclude, test }
       }
+    } = await config.getConfig<{ parcelTransformer: Options }>([resolve('baleada.config.js')], {})
+    config.invalidateOnStartup()
 
-      return await transform({
-        source,
-        id,
-        context: this,
-        utils: pluginUtils
-      })
+    const ensuredTest = ensureTest({ include, exclude, test })
+
+    return { transform, test: ensuredTest }
+  },
+  async transform (context) {
+    const { transform, test } = context.config,
+          source = await context.asset.getCode(),
+          id = context.asset.filePath
+          
+    if (!test({ source, id })) {
+      return [context.asset]
     }
-  }
-}
 
-function ensureTest ({ include, exclude, rawTest }: { include?: FilterPattern, exclude?: FilterPattern, rawTest?: Test }): Test {
-  if (typeof rawTest === 'function') {
-    return rawTest
+    return await transform({
+      source,
+      id,
+      context,
+      utils: { createFilter }
+    })
   }
+})
+
+function ensureTest ({ include, exclude, test }: { include?: FilterPattern, exclude?: FilterPattern, test?: Test }): Test {
+  if (typeof test === 'function') return test
 
   const filter = createFilter(include, exclude)
   return ({ id }) => filter(id)

@@ -1,1 +1,0 @@
-module.exports = 'Baleada: a toolkit for building web apps'

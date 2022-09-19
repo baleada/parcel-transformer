@@ -1,7 +1,9 @@
 import { configureable } from '@baleada/prepare'
 
 const external = [
-        '@rollup/pluginutils',
+        /@parcel/,
+        /@rollup/,
+        'path',
       ],
       shared = new configureable.Rollup()
         .input('src/index.ts')
